@@ -67,14 +67,15 @@ What to do when something breaks. Written for the Future Tech 24/7 shift team.
 
 ## Writing Conventions
 
-To keep this document readable for everyone, every service explanation follows the same template:
+Every service in the [services/](services/) dictionary follows the same fixed template. This keeps the reference consistent and predictable — a reader who learns to read one service entry can read all of them the same way.
 
-```markdown
-### Service Name
-| Field | Description |
-|---|---|
-| **Category** | Networking / Security / Compute / Data / Monitoring / External |
-| **Plain English** | One sentence a non-technical person can understand |
-| **Why DGBank uses it** | The business or security reason |
-| **Where it sits in the flow** | Which request path it participates in |
-| **Real-world analogy** | A comparison to everyday life |
+The template is defined in [`services/_template.md`](services/_template.md). Do not edit the template without updating every existing service file.
+
+Every service entry answers four core questions:
+
+1. **What is it, in plain English?** — one sentence, no jargon
+2. **Why does DGBank use it?** — the business, security, or operational reason
+3. **Where does it sit in the flow?** — which request journey touches it
+4. **What everyday thing is it like?** — a real-world analogy
+
+Additional fields (cost model, failure impact, configuration notes) exist to help operators and reviewers, not to overwhelm casual readers.
