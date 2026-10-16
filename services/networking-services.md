@@ -9,14 +9,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking |
-| **Plain English** | The internet's directory service. It converts a domain name like `dgbank.jp` into the numeric address a computer needs. |
-| **Why DGBank uses it** | Customers and staff reach the platform by name, not IP address. Route 53 provides reliable, low-latency DNS resolution with health checks that can redirect traffic away from unhealthy endpoints. |
-| **Where it sits in the flow** | First service touched in every inbound journey (login, balance, transfer, upload). See `docs/03-request-journeys.md`. |
-| **Real-world analogy** | The contact list on your phone. You tap "Tanaka-san" and the phone figures out the number. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | Per hosted zone per month, plus a small charge per million queries. |
-| **Failure impact** | If Route 53 cannot resolve the domain, no user can reach the platform at all. This is a critical service. |
-| **Key configuration notes** | DGBank uses the Tokyo region. Route 53 is global by design, so it is not tied to the region. |
+| **Service overview** | A highly available and scalable Domain Name System (DNS) web service that translates domain names into IP addresses and routes end-user requests to the appropriate endpoint. |
+| **Purpose in DGBank** | Provides reliable DNS resolution for all DGBank endpoints and enables health-check-based routing to maintain service availability. |
+| **Position in architecture** | Entry point of every inbound request. Operates at the edge layer, before CloudFront. |
 
 ---
 
@@ -25,14 +20,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking / Edge |
-| **Plain English** | A global delivery network that stores copies of the app's static files closer to users, so pages load faster. |
-| **Why DGBank uses it** | Mobile users in Japan get faster load times, and CloudFront absorbs a large amount of traffic before it reaches the origin, reducing load on the backend. It also integrates directly with AWS WAF and Shield for edge protection. |
-| **Where it sits in the flow** | Second hop in every inbound journey. Sits between Route 53 and AWS WAF. |
-| **Real-world analogy** | Convenience stores. Instead of driving to a central warehouse for milk, you walk to the corner shop. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | Per GB of data transferred and per request. |
-| **Failure impact** | Users would fall back to hitting the origin directly if configured; otherwise pages would fail to load. |
-| **Key configuration notes** | DGBank uses an ACM-issued TLS certificate for HTTPS. WAF rules are attached at the CloudFront distribution level. |
+| **Service overview** | A global content delivery network (CDN) that caches content at edge locations to reduce latency and offload traffic from origin servers. |
+| **Purpose in DGBank** | Accelerates content delivery for end users in Japan, reduces load on backend services, and serves as the integration point for AWS WAF and Shield at the edge. |
+| **Position in architecture** | Second layer of inbound request processing. Sits between Route 53 and AWS WAF. |
 
 ---
 
@@ -41,14 +31,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking / Security |
-| **Plain English** | A filter that inspects every incoming web request and blocks known attacks before they reach the application. |
-| **Why DGBank uses it** | As a bank, DGBank is a high-value target for attacks such as SQL injection, cross-site scripting, and credential stuffing. WAF enforces rules that block these patterns at the edge. |
-| **Where it sits in the flow** | Third hop in every inbound journey — after CloudFront, before the application. |
-| **Real-world analogy** | The metal detector at an airport. Everyone passes through, but dangerous items are stopped before boarding. |
-| **Managed or self-hosted** | Fully managed by AWS. Rules are configured by DGBank. |
-| **Cost model** | Per web ACL per month, plus per million requests. |
-| **Failure impact** | If WAF fails "open," traffic still flows but unprotected. If it fails "closed," all traffic is blocked. DGBank's configuration must be documented. |
-| **Key configuration notes** | Rate-limiting rules protect against brute-force attacks on the login endpoint. |
+| **Service overview** | A web application firewall that monitors and filters HTTP(S) requests based on configurable rules to protect against common web exploits. |
+| **Purpose in DGBank** | Protects all public-facing endpoints from SQL injection, cross-site scripting, credential stuffing, and other OWASP Top 10 threats before they reach the application. |
+| **Position in architecture** | Third layer of inbound request processing, immediately after CloudFront. |
 
 ---
 
@@ -57,14 +42,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking / Security |
-| **Plain English** | Protection against Distributed Denial of Service (DDoS) attacks — coordinated floods of traffic designed to take a service offline. |
-| **Why DGBank uses it** | A bank outage caused by DDoS is both a financial and reputational risk. Shield Advanced provides enhanced protection, 24/7 access to the AWS DDoS Response Team, and cost protection against attack-driven traffic spikes. |
-| **Where it sits in the flow** | Always-on, layer 3/4/7 protection. Interacts with CloudFront, Route 53, and ALBs. |
-| **Real-world analogy** | Flood defences around a city — always in place, rarely noticed until needed. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | Monthly subscription plus data transfer out. |
-| **Failure impact** | Not a transaction-path service; failure would mean losing enhanced DDoS mitigation during an attack. |
-| **Key configuration notes** | Shield Advanced is a paid tier above the automatic (free) Shield Standard. |
+| **Service overview** | A managed Distributed Denial of Service (DDoS) protection service that provides enhanced mitigation, real-time visibility, and access to the AWS DDoS Response Team (DRT). |
+| **Purpose in DGBank** | Protects against volumetric and application-layer DDoS attacks, with cost protection for attack-driven traffic spikes. |
+| **Position in architecture** | Always-on protection layer across CloudFront, Route 53, and Application Load Balancers. |
 
 ---
 
@@ -73,14 +53,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking |
-| **Plain English** | A private, isolated network inside AWS where DGBank's resources live. Nothing gets in or out unless DGBank says so. |
-| **Why DGBank uses it** | Isolation is a regulatory and security requirement for banking. DGBank runs three separate VPCs — User System, Business System, and Future Tech Operations — so a compromise in one cannot directly affect the others. |
-| **Where it sits in the flow** | The container for everything. All compute and data services live inside a VPC. |
-| **Real-world analogy** | A gated office building. You cannot walk in without passing reception and having a valid reason. |
-| **Managed or self-hosted** | The VPC itself is AWS-managed. What lives inside is DGBank's responsibility. |
-| **Cost model** | The VPC is free. NAT Gateways, Transit Gateway attachments, and data transfer are billed. |
-| **Failure impact** | A VPC is a logical construct, not a physical device, so it does not "fail" in the traditional sense. Misconfiguration, however, can break connectivity. |
-| **Key configuration notes** | Three VPCs — User, Business, and Future Tech. Connected via Transit Gateway. |
+| **Service overview** | A logically isolated virtual network within AWS where resources are provisioned with full control over IP addressing, subnets, route tables, and gateways. |
+| **Purpose in DGBank** | Provides network isolation between the three environments (User, Business, Future Tech) to limit blast radius and enforce regulatory separation. |
+| **Position in architecture** | Foundational layer. All compute and data services reside within a VPC. |
 
 ---
 
@@ -89,14 +64,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking |
-| **Plain English** | Subnets are sections inside a VPC. Public subnets can talk to the internet; private subnets cannot be reached directly from outside. |
-| **Why DGBank uses it** | Databases and application servers must never be directly reachable from the internet. Only load balancers and NAT Gateways sit in public subnets. |
-| **Where it sits in the flow** | Public subnets handle ingress; private subnets host compute and data. |
-| **Real-world analogy** | A hotel lobby (public) versus guest rooms (private). You can walk into the lobby unescorted, but you need a key card for a room. |
-| **Managed or self-hosted** | Configured by DGBank. |
-| **Cost model** | No direct charge. |
-| **Failure impact** | Misconfigured route tables can cause services to lose connectivity. |
-| **Key configuration notes** | DGBank currently uses two AZs (`1a`, `1c`). A pending item is to expand to three (`1a`, `1c`, `1d`). |
+| **Service overview** | Subnet segments within a VPC that control whether resources are reachable from the internet (public) or isolated from it (private). |
+| **Purpose in DGBank** | Ensures that only internet-facing components such as load balancers and NAT Gateways are exposed, while application servers and databases remain inaccessible from the internet. |
+| **Position in architecture** | Public subnets handle ingress; private subnets host ECS Fargate, Aurora, ElastiCache, and Lambda. |
 
 ---
 
@@ -105,14 +75,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking |
-| **Plain English** | A central router that connects multiple VPCs together. |
-| **Why DGBank uses it** | The User, Business, and Future Tech VPCs need to communicate selectively. Transit Gateway provides a single hub instead of a mesh of peer-to-peer connections, which becomes unmanageable as the number of VPCs grows. |
-| **Where it sits in the flow** | Used for east-west traffic — between DGBank environments and the Future Tech operations VPC. |
-| **Real-world analogy** | A major train station where all lines meet. You change trains there instead of building a direct line between every pair of cities. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | Per attachment per hour plus per GB of data processed. |
-| **Failure impact** | Losing Transit Gateway connectivity would isolate Future Tech from monitoring DGBank services. |
-| **Key configuration notes** | Route tables on Transit Gateway control which VPCs can reach which. This is a security boundary. |
+| **Service overview** | A central hub that connects multiple VPCs and on-premises networks through a single gateway, simplifying network topology. |
+| **Purpose in DGBank** | Enables controlled communication between the User, Business, and Future Tech VPCs without requiring complex VPC peering. |
+| **Position in architecture** | Backbone for east-west traffic between DGBank environments and Future Tech operations. |
 
 ---
 
@@ -121,14 +86,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking |
-| **Plain English** | Allows servers in private subnets to reach the internet (for example, to call an external API) without allowing the internet to reach them. |
-| **Why DGBank uses it** | ECS Fargate and Lambda need to call external services such as HENNGE (email), Accrete (SMS), and Anser BizSol. NAT Gateway enables outbound-only connectivity. |
-| **Where it sits in the flow** | Egress path for all private-subnet services calling external endpoints. |
-| **Real-world analogy** | A one-way door. You can leave the building, but nobody can come in through that door. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | Per hour plus per GB processed. NAT Gateway costs are one of the more significant line items in many AWS bills. |
-| **Failure impact** | External API calls from private services would fail. Internal-only flows would continue. |
-| **Key configuration notes** | DGBank uses NAT Gateways for outbound traffic. A pending item is deciding between Network Firewall and DNS Firewall for egress inspection. |
+| **Service overview** | A managed service that enables resources in private subnets to initiate outbound connections to the internet while preventing inbound connections from the internet. |
+| **Purpose in DGBank** | Allows ECS Fargate and Lambda functions to call external APIs such as Anser BizSol, HENNGE, and Accrete without exposing them to inbound internet traffic. |
+| **Position in architecture** | Egress path for private-subnet services requiring external connectivity. |
 
 ---
 
@@ -137,14 +97,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking |
-| **Plain English** | The bridge between a VPC and the public internet. |
-| **Why DGBank uses it** | Public subnets require an Internet Gateway to accept inbound traffic from end users. |
-| **Where it sits in the flow** | Attached to each VPC that needs internet-facing resources. |
-| **Real-world analogy** | The main entrance to the building. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | No direct charge. |
-| **Failure impact** | Removing the IGW would cut off all internet ingress to the VPC. |
-| **Key configuration notes** | Only public subnets have routes to the IGW. Private subnets route to NAT Gateway instead. |
+| **Service overview** | A horizontally scaled, redundant, and highly available VPC component that allows communication between a VPC and the internet. |
+| **Purpose in DGBank** | Enables public-facing resources to accept inbound traffic from end users. |
+| **Position in architecture** | Attached to each VPC that hosts internet-facing resources. |
 
 ---
 
@@ -153,14 +108,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking |
-| **Plain English** | A private, direct connection between a VPC and an AWS service (in this case, Amazon S3) that does not use the public internet. |
-| **Why DGBank uses it** | Sending data to S3 over the public internet is slower, costlier (NAT Gateway charges), and less secure. VPC Endpoints keep traffic inside the AWS network. |
-| **Where it sits in the flow** | Used by ECS Fargate and Lambda when reading from or writing to S3. |
-| **Real-world analogy** | A private tunnel between two buildings, instead of driving on public roads. |
-| **Managed or self-hosted** | Configured by DGBank; managed by AWS. |
-| **Cost model** | Gateway endpoints for S3 are free. Interface endpoints carry hourly and data charges. |
-| **Failure impact** | S3 access from the VPC would fall back to NAT Gateway if configured, or fail entirely. |
-| **Key configuration notes** | Endpoint policies can restrict which S3 buckets are reachable. |
+| **Service overview** | A private connection between a VPC and an AWS service that keeps traffic within the AWS network instead of traversing the public internet. |
+| **Purpose in DGBank** | Enables secure, cost-effective access to Amazon S3 from ECS and Lambda without NAT Gateway charges or public exposure. |
+| **Position in architecture** | Used for all S3 read and write operations from private subnets. |
 
 ---
 
@@ -169,14 +119,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking / Monitoring |
-| **Plain English** | A record of every network connection made to, from, and within a VPC. |
-| **Why DGBank uses it** | Regulatory and security requirements demand a record of network activity. Flow Logs allow investigation of suspicious traffic and prove compliance. |
-| **Where it sits in the flow** | Passive observer. Does not affect traffic; only records it. |
-| **Real-world analogy** | CCTV in a building — it does not stop anything, but it captures what happened. |
-| **Managed or self-hosted** | Configured by DGBank. Data is stored in CloudWatch Logs or S3. |
-| **Cost model** | Charges apply based on the volume of log data collected and stored. |
-| **Failure impact** | No impact on the platform, but loss of audit trail. |
-| **Key configuration notes** | A pending item is to configure Flow Logs specifically to monitor external API calls to Anser BizSol, HENNGE, Accrete, formrun, and DG AI-OCR. |
+| **Service overview** | A feature that captures IP traffic information to and from network interfaces within a VPC, delivered to CloudWatch Logs or S3. |
+| **Purpose in DGBank** | Provides a network-level audit trail for security investigations and regulatory compliance. Used to monitor external API communication. |
+| **Position in architecture** | Passive monitoring layer across all VPCs. |
 
 ---
 
@@ -185,14 +130,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking / Compute |
-| **Plain English** | Distributes incoming API requests across multiple ECS Fargate containers so no single container is overwhelmed. |
-| **Why DGBank uses it** | Provides high availability and even load distribution. If one ECS task is unhealthy, the ALB stops sending traffic to it. |
-| **Where it sits in the flow** | Between API Gateway and ECS Fargate. |
-| **Real-world analogy** | A host at a restaurant directing guests to whichever table is ready. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | Per hour plus per LCU (load balancer capacity unit) consumed. |
-| **Failure impact** | Without ALB, ECS tasks would need to be directly addressable, breaking high availability. |
-| **Key configuration notes** | DGBank uses an **internal** ALB, meaning it is not exposed to the internet — only reachable inside the VPC. |
+| **Service overview** | A load balancer that distributes incoming application traffic across multiple targets, such as ECS tasks, within a VPC. |
+| **Purpose in DGBank** | Provides high availability and even traffic distribution to ECS Fargate tasks. Health checks remove unhealthy targets automatically. |
+| **Position in architecture** | Between API Gateway and ECS Fargate. Internal-facing only. |
 
 ---
 
@@ -201,14 +141,9 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking / Security |
-| **Plain English** | A managed firewall that inspects and controls outbound traffic from the VPC to the internet. |
-| **Why DGBank uses it** | Banks must control and log all egress traffic. NWFW allows DGBank to permit only approved external endpoints (Anser BizSol, HENNGE, Accrete, and so on). |
-| **Where it sits in the flow** | Between the private subnets and the NAT Gateway/IGW. |
-| **Real-world analogy** | A customs checkpoint on the way out of the country, inspecting what is leaving. |
-| **Managed or self-hosted** | Fully managed by AWS. Rules configured by DGBank. |
-| **Cost model** | Per firewall endpoint per hour plus per GB processed. |
-| **Failure impact** | If configured to fail-closed, all egress would stop. If fail-open, traffic flows but is uninspected. |
-| **Key configuration notes** | **Pending decision:** DGBank is currently evaluating whether NWFW is required, or whether Security Groups plus DNS Firewall would meet the requirement with lower operational complexity. |
+| **Service overview** | A managed network firewall and intrusion detection and prevention service for VPCs, with fine-grained control over inbound and outbound traffic. |
+| **Purpose in DGBank** | Provides egress traffic inspection and control to ensure only approved external endpoints are reachable. |
+| **Position in architecture** | Between private subnets and NAT Gateway/IGW. Currently under evaluation. |
 
 ---
 
@@ -217,13 +152,8 @@ Services that move traffic into, out of, and between the DGBank environments.
 | Field | Description |
 |---|---|
 | **Category** | Networking / Security |
-| **Plain English** | A control that blocks DNS lookups to known-bad or unapproved domains. |
-| **Why DGBank uses it** | As an alternative or complement to Network Firewall, DNSFW can prevent services from resolving malicious or unapproved domains — a cheaper and simpler control than full packet inspection. |
-| **Where it sits in the flow** | Applied to Route 53 Resolver queries originating from the VPC. |
-| **Real-world analogy** | A phonebook with certain numbers blacked out. |
-| **Managed or self-hosted** | Fully managed by AWS. |
-| **Cost model** | Per million DNS queries inspected. |
-| **Failure impact** | If DNSFW blocks a required domain by mistake, that integration breaks. |
-| **Key configuration notes** | Being evaluated alongside NWFW as part of the pending egress security decision. |
+| **Service overview** | A Route 53 Resolver feature that filters outbound DNS queries based on domain lists, blocking resolution of malicious or unapproved domains. |
+| **Purpose in DGBank** | Alternative or complement to Network Firewall for egress control, with lower operational complexity. |
+| **Position in architecture** | Applied to Route 53 Resolver queries originating from the VPC. Currently under evaluation. |
 
 ---
