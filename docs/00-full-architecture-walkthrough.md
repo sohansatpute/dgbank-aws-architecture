@@ -4,128 +4,112 @@
 
 This document provides a comprehensive architectural review of the DGBank Digital Banking Platform hosted on AWS. It is designed for stakeholders, management, and engineering teams to understand the system's design, security posture, and operational flows.
 
-This document is divided into two main parts:
-1.  **General Architecture Overview:** A structural breakdown of the environment and every AWS service used.
-2.  **Scenario Walkthroughs:** Real-world examples of how a user, an operator, or a batch job moves through the architecture.
+To provide a complete picture, this document is structured in two parts:
+1.  **General Architecture Review:** A detailed narrative of how the system is structured, how traffic flows generally, and the role of every AWS service.
+2.  **Scenario Walkthroughs:** Real-world examples tracing how specific actions (like a customer login or a nightly batch job) execute across the architecture.
 
 ---
 
 ## 2. Guiding Architectural Principles
 
-Before diving into the technical details, it is important to understand the core philosophy behind DGBank's architecture:
+The DGBank platform is not just a collection of services; it is built on four strict architectural principles:
 
-*   **Serverless-First & Managed Services:** We rely on services like ECS Fargate and Aurora Serverless. AWS handles the heavy lifting of server maintenance, patching, and scaling. Our team focuses on banking features, not infrastructure.
-*   **Strict Environment Isolation:** The platform is split into three completely separate networks (VPCs): the **User System** (for customers), the **Business System** (for internal staff), and the **Future Tech Operations** (for 24/7 monitoring). If one is compromised, the others remain safe.
-*   **Defence in Depth:** Security is layered. Traffic is inspected at the edge, authenticated at the API layer, encrypted in the database, and continuously monitored for threats. 
-*   **Infrastructure as Code (CI/CD):** The entire environment is deployed via automated pipelines, ensuring no manual misconfigurations.
+*   **Serverless-First & Managed Services:** We rely on services like Amazon ECS Fargate and Amazon Aurora Serverless. This means AWS manages the underlying servers, patching, and scaling. Our team focuses on banking features, not infrastructure maintenance.
+*   **Strict Environment Isolation:** The platform is physically separated into three distinct networks (VPCs): the **User System** (for customers), the **Business System** (for internal staff), and the **Future Tech Operations** (for 24/7 monitoring). A breach in one environment cannot easily compromise the others.
+*   **Defence in Depth:** Security is layered. Traffic is inspected at the global edge, authenticated at the API layer, isolated within private networks, encrypted in the database, and continuously monitored for threats.
+*   **Infrastructure as Code (CI/CD):** The entire environment is deployed via automated pipelines, ensuring no manual misconfigurations and a fully auditable change history.
 
 ---
 
-## 3. General Architecture Overview
+## 3. General Architecture Review
 
-To understand the whole system, we break it down into six functional layers.
+To understand how the DGBank platform runs, we must trace how a request travels from the outside world into the core of the bank, how data is stored securely, and how the entire system is monitored and governed.
 
-### 3.1 Networking & Edge Layer
-This layer handles how traffic enters the system, how the internal networks are isolated, and how external traffic is managed.
-*   **Amazon Route 53:** The DNS (Domain Name System) service. It acts as the internet's directory, translating human-readable domain names into IP addresses.
-*   **Amazon CloudFront:** A Content Delivery Network (CDN). It caches static content (images, web pages) at edge locations worldwide, ensuring fast load times for users in Japan.
-*   **AWS WAF (Web Application Firewall):** Inspects all incoming web traffic. It blocks malicious payloads like SQL injection and cross-site scripting (XSS) before they reach the servers.
-*   **AWS Shield Advanced:** Provides continuous DDoS (Distributed Denial of Service) protection. It protects the bank from coordinated cyberattacks aimed at taking the system offline.
-*   **AWS Certificate Manager (ACM):** Handles the creation and automatic renewal of SSL/TLS certificates, ensuring all web traffic is encrypted via HTTPS.
-*   **Amazon VPC (Virtual Private Cloud):** The isolated network boundary. DGBank uses three separate VPCs (User, Business, Operations) to ensure strict separation of resources.
-*   **Public & Private Subnets:** Public subnets host internet-facing components (like Load Balancers). Private subnets host sensitive components (like databases and application servers) that should never be directly accessible from the internet.
-*   **Internet Gateway (IGW):** The bridge that allows the public subnets to communicate with the internet.
-*   **NAT Gateway:** Allows servers in the private subnets to initiate outbound internet traffic (e.g., to call an external API) while preventing the internet from initiating inbound connections to them.
-*   **AWS Transit Gateway:** Acts as a central network hub. It securely connects the three different VPCs together, simplifying network routing.
-*   **VPC Endpoint:** Provides a private, direct connection between the VPC and AWS services (like Amazon S3). Traffic stays within the AWS network and does not go over the public internet.
-*   **AWS Network Firewall (NWFW):** Inspects and controls outbound (egress) traffic leaving the VPC, ensuring servers only talk to approved destinations.
-*   **DNS Firewall:** Blocks outbound DNS queries to known malicious or unapproved domains, acting as a secondary egress control.
-*   **VPC Flow Logs:** Captures IP traffic data across the network. It acts as a CCTV camera for network traffic, recording accepted and rejected connections for security audits.
-*   **Internal Application Load Balancer (ALB):** Distributes incoming API traffic across multiple ECS containers, ensuring high availability and preventing any single server from being overwhelmed.
+### 3.1 The Global Edge & Network Perimeter
+When a user attempts to access DGBank, they do not connect directly to a server. They hit our global edge layer:
+*   **Amazon Route 53** acts as the internet's directory (DNS), routing user requests to the correct endpoint.
+*   **Amazon CloudFront** (a Content Delivery Network) caches static files at edge locations globally, ensuring fast load times and absorbing traffic spikes.
+*   **AWS WAF (Web Application Firewall)** and **AWS Shield Advanced** act as the first line of defence, inspecting all incoming traffic to block malicious payloads (like SQL injection) and mitigating Distributed Denial of Service (DDoS) attacks.
+*   **AWS Certificate Manager (ACM)** ensures all connections are securely encrypted via HTTPS by managing SSL/TLS certificates automatically.
 
-### 3.2 Security, Identity & Governance Layer
-This layer ensures that only the right people and services can access the right resources, and that all actions are auditable.
-*   **Amazon Cognito:** The identity provider. It handles user sign-up, sign-in, and mandatory 2-Factor Authentication (2FA) via SMS or Email.
-*   **AWS IAM (Identity and Access Management):** Controls access to AWS resources. It ensures that services (like ECS) and operators have the strict minimum permissions required to do their jobs (Least Privilege).
-*   **AWS Organizations:** Manages multiple AWS accounts centrally. It allows DGBank to apply unbreakable security policies across all accounts.
-*   **AWS KMS (Key Management Service):** Creates and manages the encryption keys used to protect data at rest in databases and storage.
-*   **AWS Secrets Manager:** A secure vault for passwords and API keys. It prevents hardcoding credentials in the source code.
-*   **Amazon GuardDuty:** Uses machine learning to continuously monitor for malicious activity and unauthorized behavior (e.g., a server talking to a known hacker IP).
-*   **AWS Security Hub:** Aggregates all security alerts from various AWS services into a single dashboard, providing a holistic view of the bank's security posture.
-*   **Amazon Inspector:** Scans Docker container images for known software vulnerabilities (CVEs) before they are deployed.
-*   **Amazon Macie:** Uses machine learning to scan S3 buckets for Personally Identifiable Information (PII) to ensure data is not accidentally exposed.
-*   **AWS Config:** Records the configuration history of all resources. It proves compliance by tracking any changes made to the environment.
-*   **AWS CloudTrail:** Records every API call made in the AWS account. It is the ultimate audit log, showing exactly who did what, and when.
+### 3.2 The Isolated Network Topology
+Once traffic passes the edge, it enters our Virtual Private Cloud (**Amazon VPC**). To ensure maximum security, we utilize **Public and Private Subnets**. 
+*   Public subnets host internet-facing components like the **Internet Gateway (IGW)** and **NAT Gateway**. 
+*   Private subnets host our sensitive compute and data resources, meaning they are completely hidden from the internet. The **NAT Gateway** allows these private resources to initiate outbound connections to the internet (for updates or external APIs) without allowing inbound connections.
+*   To connect our three separate environments (User, Business, Ops), we use **AWS Transit Gateway**, which acts as a central, highly secure network hub.
+*   For accessing AWS services like Amazon S3 privately without traversing the public internet, we use **VPC Endpoints**.
+*   To strictly control outbound traffic leaving our network, we utilize **AWS Network Firewall (NWFW)** and **DNS Firewall (DNSFW)** as pending egress security measures.
+*   Finally, **VPC Flow Logs** record all network traffic, providing an audit trail for security investigations.
 
-### 3.3 Compute & Application Layer
-This is the "brain" of the system, where business logic is executed and workflows are orchestrated.
-*   **Amazon API Gateway:** The front door for REST APIs. It validates tokens, applies rate limiting, and routes requests to the backend.
-*   **AWS AppSync:** A managed GraphQL API service, providing a flexible data querying alternative to API Gateway for specific frontend needs.
-*   **Amazon ECS Fargate:** The core compute engine. It runs the backend application code in Docker containers without the need to manage underlying virtual machines.
-*   **AWS Lambda:** Serverless compute for event-driven tasks. It runs lightweight code (e.g., processing a file upload) without provisioning servers.
-*   **AWS Step Functions:** A workflow orchestrator. It coordinates complex, multi-step processes (like OCR processing or batch jobs) and handles retries automatically.
-*   **Amazon ECR (Elastic Container Registry):** A secure registry to store the Docker images built by the developers.
-*   **GitHub Actions:** The CI/CD pipeline that automates building, testing, and deploying application code to AWS.
+### 3.3 Identity, Authentication & API Routing
+Before a request reaches the application, it must be authenticated:
+*   **Amazon Cognito** manages customer and staff identities. It verifies credentials and enforces mandatory 2-Factor Authentication (2FA) via SMS or Email.
+*   Once authenticated, the user receives a secure token. They send this token to **Amazon API Gateway** (for REST APIs) or **AWS AppSync** (for GraphQL). These services validate the token and act as the front door, applying rate limits before routing the request to the backend.
+*   **AWS IAM (Identity and Access Management)** ensures that these services, and the humans operating them, only have the strict minimum permissions needed to do their jobs.
 
-### 3.4 Data & Storage Layer
-Where the bank's most critical asset—data—is securely stored and managed.
-*   **Amazon Aurora Serverless:** The primary relational database. It stores customer data and transactions. It features a "Writer" node (for transactions) and a "Reader" node (for queries) to optimize performance.
-*   **Amazon ElastiCache:** An in-memory caching layer. It stores frequently accessed data to dramatically speed up response times and reduce database load.
-*   **Amazon S3 (Simple Storage Service):** Object storage for static frontend files, uploaded customer documents (for OCR), and batch CSV files.
-*   **Amazon SQS (Simple Queue Service):** A message queue that decouples services. It holds tasks (like sending an email or processing a document) so the system doesn't crash during traffic spikes.
+### 3.4 The Core Compute Engine
+The actual business logic of the bank runs here:
+*   An **Internal Application Load Balancer (ALB)** receives the request from API Gateway and distributes it evenly across multiple containers to prevent overload.
+*   **Amazon ECS Fargate** is the core "brain." It runs our backend application in Docker containers, scaling automatically based on demand without us managing virtual machines.
+*   For smaller, event-driven tasks (like processing a file upload), we use **AWS Lambda**.
+*   For complex, multi-step processes (like reading a document or running a batch job), we use **AWS Step Functions** to orchestrate the workflow and handle retries if a step fails.
+*   The Docker images that run on ECS are built by **GitHub Actions** and securely stored in **Amazon ECR (Elastic Container Registry)**.
 
-### 3.5 Monitoring & Operations Layer
-How Future Tech monitors the system 24/7 without direct access to customer data.
-*   **Amazon CloudWatch:** The central telemetry service. It collects logs and metrics from all services and triggers alarms if something goes wrong.
-*   **Amazon EventBridge:** An event router. It reacts to system state changes (e.g., an alarm triggering) and schedules automated nightly jobs.
-*   **Amazon SNS (Simple Notification Service):** Sends outbound notifications (like SMS alerts to operators or customers).
-*   **Amazon SES (Simple Email Service):** Sends outbound transactional emails.
-*   **AWS Management Console:** The secure web portal used by Future Tech operators to investigate alerts and view system health.
+### 3.5 Data Persistence & Caching
+The backend relies on a robust data layer:
+*   **Amazon Aurora Serverless** is our primary relational database. It separates the "Writer" node (handling money transfers and updates) from the "Reader" node (handling balance checks), ensuring heavy reporting does not slow down transactions.
+*   **Amazon ElastiCache** acts as an in-memory cache, storing frequently requested data to dramatically speed up response times and reduce the load on Aurora.
+*   **Amazon S3** stores static assets, batch CSV files, and uploaded customer documents.
+*   **Amazon SQS (Simple Queue Service)** is used to decouple services, holding messages (like "process this document") so that traffic spikes do not crash the backend.
 
-### 3.6 External Integrations (Vendors)
-Critical third-party services that DGBank relies on to deliver banking and communication features.
-*   **Anser BizSol:** The middleware connecting DGBank to the Resona Bank Core Banking System. It is the only path to move money in the core ledger.
-*   **HENNGE:** An enterprise email provider used for secure customer communications.
-*   **Accrete:** An SMS provider used for 2FA codes and transaction alerts.
-*   **formrun:** A form creation tool used for account opening workflows.
-*   **DG AI-OCR:** An external service that reads and extracts text from uploaded customer documents (like ID cards).
-*   **Google Drive:** Used by internal staff for secure file storage and sharing.
-*   **LINE:** The primary communication channel between Future Tech operators and DGBank during incidents.
+### 3.6 Security, Governance & Compliance Wrapper
+Wrapping around the entire architecture are the services that ensure banking-grade compliance and security:
+*   **AWS KMS (Key Management Service)** manages the encryption keys used to protect data at rest in databases and S3.
+*   **AWS Secrets Manager** securely stores and rotates database passwords and API keys, keeping them out of source code.
+*   **Amazon GuardDuty** continuously monitors for malicious activity and compromised credentials.
+*   **AWS Security Hub** aggregates all security alerts into a single dashboard.
+*   **Amazon Inspector** automatically scans our container images for software vulnerabilities before deployment.
+*   **Amazon Macie** uses machine learning to scan S3 buckets for accidentally exposed Personally Identifiable Information (PII).
+*   **AWS Config** tracks every change made to the infrastructure, proving compliance to regulators.
+*   **AWS CloudTrail** records every single API call made in the account.
+*   **AWS Organizations** ties the separate environments together and applies unbreakable guardrails across all accounts.
+
+### 3.7 Operations & External Integrations
+Finally, the system must be monitored 24/7 and communicate with the outside world:
+*   **Amazon CloudWatch** collects logs and metrics from all services and triggers alarms.
+*   **Amazon EventBridge** routes system events (like alarms) and schedules nightly batch jobs.
+*   **AWS Management Console** is the secure portal used by Future Tech operators to monitor the system.
+*   For communications, we integrate with external providers: **Anser BizSol** (to connect to Resona Bank's core ledger), **HENNGE** (for Email), **Accrete** (for SMS), **formrun** (for account opening forms), **DG AI-OCR** (for document reading), **Google Drive** (for staff file sharing), and **LINE** (for operational escalations). These outbound calls are triggered by **Amazon SNS** and **Amazon SES**.
 
 ---
 
 ## 4. Scenario Walkthroughs: How the Architecture Runs
 
-Now that we understand the components, let's trace exactly what happens during real-world operations.
+Now that we understand the structural design, let's trace exactly what happens during real-world operations.
 
 ### Scenario 1: The Customer Journey (Login, Balance & Transfer)
 
 **The Goal:** An end-user opens the mobile app, logs in, checks their balance, and transfers money.
 
 **Step 1: The Entry & Edge Security**
-*   **Amazon Route 53 (DNS):** The user taps the app. Route 53 translates the DGBank domain name into an IP address, directing the traffic to the cloud.
-*   **Amazon CloudFront (CDN):** Static files (like the app’s login screen and images) are served instantly from edge locations close to the user.
-*   **AWS WAF & AWS Shield Advanced:** Before the request reaches our servers, WAF inspects it for malicious payloads (like SQL injection), while Shield actively blocks any DDoS attacks. 
-*   **AWS Certificate Manager (ACM):** Automatically provisions and renews the SSL/TLS certificates for CloudFront, ensuring all traffic is securely encrypted via HTTPS.
+*   **Amazon Route 53** translates the DGBank domain name into an IP address, directing traffic to **Amazon CloudFront**.
+*   **AWS WAF & AWS Shield** inspect the traffic for attacks. **AWS Certificate Manager (ACM)** ensures the connection is encrypted via HTTPS.
 
 **Step 2: Identity & Authentication**
-*   **Amazon Cognito:** The user submits their credentials. Cognito handles the authentication. Because this is a bank, it enforces **mandatory 2FA** by sending an SMS (via Accrete) or Email (via HENNGE). Once verified, Cognito issues a secure JSON Web Token (JWT).
-*   **Amazon API Gateway / AWS AppSync:** The app sends the token with every subsequent request. API Gateway (for REST APIs) and AppSync (for GraphQL) validate this token with Cognito. If the token is invalid, the request is rejected immediately.
+*   **Amazon Cognito** verifies the user's credentials and enforces **2FA** (sending a code via **Accrete** SMS or **HENNGE** Email). It issues a secure JSON Web Token (JWT).
+*   **Amazon API Gateway** validates the token before allowing the request through.
 
 **Step 3: Core Processing & Data Retrieval**
-*   **Internal Application Load Balancer (ALB):** API Gateway routes the request to the ALB. The ALB distributes incoming traffic evenly to ensure no single server is overwhelmed.
-*   **Amazon ECS Fargate (Backend API):** The ALB directs the request to the core "brain" of the bank—our containerized backend application running on ECS Fargate. This computes the business logic.
-*   **Amazon ElastiCache:** Before querying the main database, ECS Fargate checks the Redis cache. If the user recently checked their balance, it is returned instantly.
-*   **Amazon Aurora Serverless:** For transactions (like a money transfer), ECS Fargate writes to the **Aurora Writer** node. For read-only queries, it uses the **Aurora Reader** node. This separation prevents heavy reporting from slowing down real-time money transfers.
+*   The **Internal ALB** routes the request to **Amazon ECS Fargate**.
+*   ECS Fargate checks **Amazon ElastiCache** for the balance. If not found, it queries the **Amazon Aurora (Reader)** node. 
+*   For the money transfer, ECS Fargate writes to the **Amazon Aurora (Writer)** node.
 
 **Step 4: External Integration (The Money Movement)**
-*   **Anser BizSol:** To actually move money, ECS Fargate securely calls Anser BizSol, the middleware connecting us to Resona Bank's core ledger. 
-*   **AWS Secrets Manager:** The credentials to call Anser BizSol are never hardcoded; they are fetched securely from Secrets Manager at runtime.
-*   **Amazon VPC & Subnets:** The application runs in Private Subnets, meaning it cannot be reached directly from the internet.
-*   **NAT Gateway & Network Firewall (NWFW):** The outbound request leaves our private network through the NAT Gateway. It passes through the Network Firewall, which inspects egress traffic to ensure data is only going to approved external destinations.
+*   To move money, ECS Fargate uses credentials from **AWS Secrets Manager** to call **Anser BizSol** (connecting to Resona Bank). The outbound request passes through the **NAT Gateway** and is inspected by **Network Firewall (NWFW)**.
+*   The transaction is securely stored, and data is encrypted using **AWS KMS**.
 
 **Step 5: The Confirmation**
-*   **Amazon SNS & SES:** Once the transfer is successful, the system triggers a notification. Amazon SES sends an email receipt (via HENNGE), and SNS triggers an SMS alert (via Accrete). The user sees a success screen.
+*   **Amazon SNS & SES** trigger an SMS (via Accrete) and Email (via HENNGE) receipt to the user. The app displays a success screen.
 
 ---
 
@@ -134,16 +118,15 @@ Now that we understand the components, let's trace exactly what happens during r
 **The Goal:** A customer uploads a photo of their ID for KYC (Know Your Customer) verification.
 
 **Step 1: Secure Upload**
-*   **Amazon S3:** The customer uploads the image. The file is stored securely in an S3 bucket. 
-*   **VPC Endpoint (S3):** Crucially, S3 is accessed via a VPC Endpoint, meaning the traffic stays entirely within the AWS private network and never traverses the public internet.
+*   The customer uploads the image via the API. It is stored in **Amazon S3** (accessed privately via a **VPC Endpoint**).
 
 **Step 2: Orchestration & AI Processing**
-*   **AWS Lambda & AWS Step Functions:** The upload to S3 triggers a Lambda function. Lambda kicks off a Step Functions workflow. Step Functions acts as the conductor, managing the multi-step process and handling retries if something fails.
-*   **DG AI-OCR:** Step Functions securely calls the external DG AI-OCR service to read the text on the ID card. 
+*   The S3 upload triggers **AWS Lambda**, which starts an **AWS Step Functions** workflow.
+*   Step Functions calls the external **DG AI-OCR** service to read the ID card. 
 
 **Step 3: Data Storage & Queuing**
-*   Once the OCR service returns the extracted text, Step Functions updates the customer's profile in **Aurora**.
-*   **Amazon SQS (Simple Queue Service):** If downstream processing is required (like notifying the core banking system), a message is placed in the SQS queue. This decouples the services, ensuring that a spike in uploads doesn't crash the backend.
+*   Step Functions updates the customer's profile in **Amazon Aurora**.
+*   A message is placed in **Amazon SQS** to handle downstream processing (like notifying the core banking system) asynchronously.
 
 ---
 
@@ -152,17 +135,14 @@ Now that we understand the components, let's trace exactly what happens during r
 **The Goal:** At 2:00 AM, the system reconciles daily transactions, while developers deploy new code during the day.
 
 **Step 1: The Batch Trigger**
-*   **Amazon EventBridge:** At exactly 2:00 AM, EventBridge emits a scheduled event, replacing traditional cron jobs.
-*   **AWS Step Functions:** EventBridge triggers the batch workflow. 
-*   **Amazon ECS Fargate:** Step Functions spins up dedicated, high-compute ECS Fargate tasks to process the data.
-*   **Amazon S3:** The ECS tasks read CSV files from S3, process the data, and write the reconciled output CSVs back to S3.
-*   **Anser BizSol:** At the end of the batch, the final reconciliation data is transmitted to Resona Bank.
+*   **Amazon EventBridge** emits a scheduled event at 2:00 AM.
+*   **AWS Step Functions** orchestrates the batch workflow, spinning up high-compute **Amazon ECS Fargate** tasks.
+*   These tasks read and write CSV files in **Amazon S3** and ultimately transmit reconciliation data to **Anser BizSol**.
 
 **Step 2: Developer CI/CD Deployment**
-*   **GitHub Actions:** Developers push code to GitHub, which triggers an automated build and test pipeline.
-*   **Amazon ECR (Elastic Container Registry):** The built Docker image is stored securely in ECR.
-*   **Amazon Inspector:** Automatically scans the ECR image for software vulnerabilities (CVEs) before deployment.
-*   **Amazon ECS Fargate:** The new, secure image is pulled by ECS Fargate and rolled out to production.
+*   **GitHub Actions** builds the code and pushes the Docker image to **Amazon ECR**.
+*   **Amazon Inspector** scans the image for vulnerabilities.
+*   **Amazon ECS Fargate** pulls the secure image and deploys it.
 
 ---
 
@@ -171,47 +151,28 @@ Now that we understand the components, let's trace exactly what happens during r
 **The Goal:** Ensure the system is running smoothly and respond to incidents immediately.
 
 **Step 1: Telemetry Collection**
-*   **Amazon CloudWatch:** Every service (ECS, Lambda, Aurora, API Gateway) continuously sends logs and metrics to CloudWatch. 
-*   **VPC Flow Logs:** Captures IP traffic data across the network, providing a record of all connections for security auditing.
+*   **Amazon CloudWatch** collects logs and metrics from all services. **VPC Flow Logs** capture network traffic data.
 
 **Step 2: Alerting**
-*   If an error occurs (e.g., an ECS task crashes), CloudWatch triggers an alarm.
-*   **Amazon EventBridge:** The alarm state change is routed through EventBridge.
-*   **AWS Transit Gateway:** The alert travels securely across the Transit Gateway into the isolated **Future Tech VPC**.
+*   If an error occurs, CloudWatch triggers an alarm. **Amazon EventBridge** routes the alarm through **AWS Transit Gateway** into the isolated Future Tech environment.
 
 **Step 3: Operator Response**
-*   **AWS Management Console:** Future Tech operators in India and Daikanyama receive the alert via **LINE**, Email, or Slack. They log into the AWS Management Console using secure, read-only IAM roles.
-*   They use **CloudWatch Logs** to investigate the issue and **AWS CloudTrail** to see exactly what API call caused the problem.
+*   Operators receive the alert via **LINE**, Email, or Slack. They log into the **AWS Management Console** using **AWS IAM** roles.
+*   They investigate using **CloudWatch Logs**, **AWS CloudTrail**, and **AWS Security Hub**, while **Amazon GuardDuty** and **Amazon Macie** continuously monitor the background for threats.
 
 ---
 
-## 5. Deep Dive: Security, Governance & Compliance
-
-While the scenarios explain the processing flow, the underlying security architecture ensures DGBank meets strict regulatory requirements.
-
-*   **Amazon GuardDuty:** Constantly monitors CloudTrail, VPC Flow Logs, and DNS logs for malicious activity.
-*   **AWS Security Hub:** Aggregates all alerts from GuardDuty, Inspector, and Macie into a single dashboard, scored against banking compliance standards.
-*   **Amazon Macie:** Scans S3 buckets using Machine Learning to ensure that customer PII is not accidentally exposed.
-*   **AWS Config:** Tracks every change made to the infrastructure. If someone changes a security group, AWS Config flags it.
-*   **AWS CloudTrail:** The ultimate audit log. It records every single API call.
-*   **AWS Organizations:** Ties the accounts together under one master account using unbreakable Service Control Policies (SCPs).
-*   **AWS IAM (Identity and Access Management):** Controls who can do what using strict least-privilege roles.
-*   **AWS KMS (Key Management Service):** Manages the encryption keys used to protect data at rest.
-*   **DNS Firewall:** Acts as a secondary egress control, blocking the servers from resolving malicious domain names.
-
----
-
-## 6. Pending Action Items & Architectural Recommendations
+## 5. Pending Action Items & Architectural Recommendations
 
 Based on our review of the architecture, the following items are critical for launch:
 
-1.  **Expand to Three Availability Zones (AZs):** Currently, resources are deployed in two AZs. To guarantee zero data loss in a data center failure, the network must be expanded to three AZs, and **Aurora** must be configured as a Multi-AZ cluster.
+1.  **Expand to Three Availability Zones (AZs):** The network must be expanded to three AZs, and **Amazon Aurora** must be configured as a Multi-AZ cluster to guarantee zero data loss.
 2.  **Egress Security Decision:** We need to finalize the choice between **AWS Network Firewall (NWFW)** and **Security Groups + DNS Firewall**. NWFW provides deep packet inspection but is complex to manage. DNSFW is simpler but only blocks domains.
 3.  **IAM Permission Hardening:** We must ensure the IAM roles assigned to ECS tasks have the strict minimum permissions required to call Anser BizSol, HENNGE, Accrete, and DG AI-OCR.
-4.  **Cognito 2FA Procedures:** Since SMS/Email 2FA is mandatory, the operational runbooks for Future Tech must clearly define what to do if a customer loses their phone or cannot receive an OTP.
+4.  **Cognito 2FA Procedures:** Operational runbooks must define what to do if a customer loses their phone or cannot receive an OTP.
 
 ---
 
-## 7. Summary
+## 6. Summary
 
-The DGBank architecture is a secure, modern, cloud-native platform. By utilizing **Amazon Cognito** for robust authentication, **AWS WAF and Shield** for edge protection, **ECS Fargate** for resilient compute, and **Aurora** for reliable data storage, the system is engineered to handle the demands of digital banking. The strict network isolation, combined with comprehensive monitoring via **CloudWatch, CloudTrail, and Security Hub**, ensures that security and compliance are maintained at every layer.
+The DGBank architecture is a secure, modern, cloud-native platform. By utilizing **Amazon Cognito** for robust authentication, **AWS WAF and Shield** for edge protection, **Amazon ECS Fargate** for resilient compute, and **Amazon Aurora** for reliable data storage, the system is engineered to handle the demands of digital banking. The strict network isolation, combined with comprehensive monitoring via **Amazon CloudWatch, AWS CloudTrail, and AWS Security Hub**, ensures that security and compliance are maintained at every layer.
