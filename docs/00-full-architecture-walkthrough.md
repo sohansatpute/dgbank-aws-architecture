@@ -51,7 +51,7 @@ Before a request reaches the application, it must be authenticated:
 The actual business logic of the bank runs here:
 *   An **Internal Application Load Balancer (ALB)** receives the request from API Gateway and distributes it evenly across multiple containers to prevent overload.
 *   **Amazon ECS Fargate** is the core "brain." It runs our backend application in Docker containers, scaling automatically based on demand without us managing virtual machines.
-*   For smaller, event-driven tasks (like processing a file upload), we use **AWS Lambda**.
+*   **AWS Lambda** is used for smaller, event-driven tasks. The architecture utilizes specific Lambda functions (labeled **L5, L6, A10, A11, and V.W. Lambda**) to handle distinct microservices, such as CSV data processing, file handling, and data update APIs.
 *   For complex, multi-step processes (like reading a document or running a batch job), we use **AWS Step Functions** to orchestrate the workflow and handle retries if a step fails.
 *   The Docker images that run on ECS are built by **GitHub Actions** and securely stored in **Amazon ECR (Elastic Container Registry)**.
 
@@ -74,9 +74,10 @@ Wrapping around the entire architecture are the services that ensure banking-gra
 *   **AWS CloudTrail** records every single API call made in the account.
 *   **AWS Organizations** ties the separate environments together and applies unbreakable guardrails across all accounts.
 
-### 3.7 Operations & External Integrations
+### 3.7 Operations, Monitoring & External Integrations
 Finally, the system must be monitored 24/7 and communicate with the outside world:
 *   **Amazon CloudWatch** collects logs and metrics from all services and triggers alarms.
+*   **Amazon Kinesis Data Firehose** streams logs and telemetry data from CloudWatch into an Amazon S3 bucket for long-term storage, analytics, and compliance auditing.
 *   **Amazon EventBridge** routes system events (like alarms) and schedules nightly batch jobs.
 *   **AWS Management Console** is the secure portal used by Future Tech operators to monitor the system.
 *   For communications, we integrate with external providers: **Anser BizSol** (to connect to Resona Bank's core ledger), **HENNGE** (for Email), **Accrete** (for SMS), **formrun** (for account opening forms), **DG AI-OCR** (for document reading), **Google Drive** (for staff file sharing), and **LINE** (for operational escalations). These outbound calls are triggered by **Amazon SNS** and **Amazon SES**.
@@ -121,11 +122,11 @@ Now that we understand the structural design, let's trace exactly what happens d
 *   The customer uploads the image via the API. It is stored in **Amazon S3** (accessed privately via a **VPC Endpoint**).
 
 **Step 2: Orchestration & AI Processing**
-*   The S3 upload triggers **AWS Lambda**, which starts an **AWS Step Functions** workflow.
+*   The S3 upload triggers specific **AWS Lambda** functions (labeled **L5** and **L6**) to process the file. This starts an **AWS Step Functions** workflow.
 *   Step Functions calls the external **DG AI-OCR** service to read the ID card. 
 
 **Step 3: Data Storage & Queuing**
-*   Step Functions updates the customer's profile in **Amazon Aurora**.
+*   Step Functions updates the customer's profile in **Amazon Aurora** using the **V.W. Lambda** (Data Update API).
 *   A message is placed in **Amazon SQS** to handle downstream processing (like notifying the core banking system) asynchronously.
 
 ---
@@ -152,6 +153,7 @@ Now that we understand the structural design, let's trace exactly what happens d
 
 **Step 1: Telemetry Collection**
 *   **Amazon CloudWatch** collects logs and metrics from all services. **VPC Flow Logs** capture network traffic data.
+*   **Amazon Kinesis Data Firehose** streams these logs into **Amazon S3** for permanent storage and auditing.
 
 **Step 2: Alerting**
 *   If an error occurs, CloudWatch triggers an alarm. **Amazon EventBridge** routes the alarm through **AWS Transit Gateway** into the isolated Future Tech environment.
@@ -175,4 +177,4 @@ Based on our review of the architecture, the following items are critical for la
 
 ## 6. Summary
 
-The DGBank architecture is a secure, modern, cloud-native platform. By utilizing **Amazon Cognito** for robust authentication, **AWS WAF and Shield** for edge protection, **Amazon ECS Fargate** for resilient compute, and **Amazon Aurora** for reliable data storage, the system is engineered to handle the demands of digital banking. The strict network isolation, combined with comprehensive monitoring via **Amazon CloudWatch, AWS CloudTrail, and AWS Security Hub**, ensures that security and compliance are maintained at every layer.
+The DGBank architecture is a secure, modern, cloud-native platform. By utilizing **Amazon Cognito** for robust authentication, **AWS WAF and Shield** for edge protection, **Amazon ECS Fargate** for resilient compute, and **Amazon Aurora** for reliable data storage, the system is engineered to handle the demands of digital banking. The strict network isolation, combined with comprehensive monitoring via **Amazon CloudWatch, Amazon Kinesis, AWS CloudTrail, and AWS Security Hub**, ensures that security and compliance are maintained at every layer.
